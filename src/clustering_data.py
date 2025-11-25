@@ -80,8 +80,23 @@ for col in fill_mode_cols:
         if col == 'indrel_1mes':
             df[col] = df[col].astype(str).str.replace('.0', '', regex=False)
 
-if 'indrel' in df.columns and df['indrel'].nunique() <= 1:
-    df.drop(columns=['indrel'], inplace=True)
+# 3.X 處理 indrel (關鍵修改！)
+# ------------------------------------------------------
+print("   - 正在過濾非活躍客戶 (indrel != 1)...")
+
+# 先確保 indrel 轉成數值 (處理 '1.0', '1', '99' 混雜狀況)
+df['indrel'] = pd.to_numeric(df['indrel'], errors='coerce').fillna(1)
+
+# 【關鍵】只保留 indrel == 1 (活躍客戶)
+# 那些 99 的人通常產品都是空的，對推薦模型幫助不大，甚至是雜訊
+original_count = len(df)
+df = df[df['indrel'] == 1].copy()
+filtered_count = len(df)
+
+print(f"     已剔除 {original_count - filtered_count} 名非活躍客戶 (indrel=99)。")
+
+# 既然現在大家都是 1 了，這個欄位變異數為 0，直接刪除
+df.drop(columns=['indrel'], inplace=True)
 
 # ==========================================
 # 2.5 極端值處理 (Outlier Capping)
@@ -124,7 +139,11 @@ for col in outlier_cols:
 # ==========================================
 print("Step 3: 執行 Label Encoding 與 Scaling 並儲存 JSON...")
 
-cat_cols = ['sexo', 'ind_empleado', 'pais_residencia', 'nomprov', 'segmento', 'canal_entrada', 'indrel_1mes', 'tiprel_1mes']
+cat_cols = [
+    'sexo', 'ind_empleado', 'pais_residencia', 'nomprov', 
+    'segmento', 'canal_entrada', 'indrel_1mes', 'tiprel_1mes',
+    'indresi', 'indext', 'indfall'  # <--- 補上這三個
+]
 num_cols = ['age', 'renta', 'antiguedad', 'month_joined']
 
 # 確保欄位存在
@@ -153,24 +172,27 @@ with open(MAPPING_FILE, 'w', encoding='utf-8') as f:
 print(f"   - Label Encoding 映射已存至: {MAPPING_FILE}")
 
 
-# --- B. 處理 Scaler 並儲存參數 ---
-scaler = StandardScaler()
-# 擬合並轉換
-df[num_cols] = scaler.fit_transform(df[num_cols])
+# 合併所有需要 Scaling 的欄位列表
+features_to_scale = num_cols + cat_cols
 
-# 提取 Mean 和 Std (Scale)
+scaler = StandardScaler()
+
+# 一次性對這些欄位做轉換
+df[features_to_scale] = scaler.fit_transform(df[features_to_scale])
+
+# 提取參數並儲存 (這時候類別欄位也有 mean 和 std 了)
 scaler_params = {}
-for i, col in enumerate(num_cols):
+for i, col in enumerate(features_to_scale):
     scaler_params[col] = {
-        'mean': float(scaler.mean_[i]),   # 轉為 python float 以利 json 儲存
-        'std': float(scaler.scale_[i])    # scale_ 屬性即為標準差
+        'mean': float(scaler.mean_[i]),
+        'std': float(scaler.scale_[i])
     }
 
 # 儲存 Scaler JSON
 with open(SCALER_FILE, 'w', encoding='utf-8') as f:
     json.dump(scaler_params, f, ensure_ascii=False, indent=4)
-print(f"   - Scaler 參數已存至: {SCALER_FILE}")
 
+print(f"   - 全特徵標準化完成！Scaler 參數已存至: {SCALER_FILE}")
 
 # ==========================================
 # 4. 存檔
