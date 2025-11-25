@@ -132,7 +132,7 @@ for col in outlier_cols:
         df[col] = df[col].clip(upper=upper_limit)
 
         # 下限處理 (Optional): 防止負數 (例如 age < 0)
-        # df[col] = df[col].clip(lower=0)
+        df[col] = df[col].clip(lower=0)
 
 # ==========================================
 # 3. 特徵預處理與儲存映射 (Encoding & Saving)
